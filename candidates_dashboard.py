@@ -25,33 +25,31 @@ creds = Credentials.from_service_account_file(
 client = gspread.authorize(creds)
 
 def get_candidates():
-    sheet = client.open_by_key(SPREADSHEET_KEY)
     try:
+        sheet = client.open_by_key(SPREADSHEET_KEY)
         ws = sheet.worksheet(SHEET_NAME)
-    except:
-        # シートがなければサンプルデータを返す
+        rows = ws.get_all_values()
+        if len(rows) <= 1:
+            return get_sample_data()
+        candidates = []
+        for row in rows[1:]:
+            if not row[0]:
+                continue
+            candidates.append({
+                'name':       row[0] if len(row) > 0 else '',
+                'ca':         row[1] if len(row) > 1 else '',
+                'company':    row[2] if len(row) > 2 else '',
+                'rec_date':   row[3] if len(row) > 3 else '',
+                'stage':      row[4] if len(row) > 4 else '',
+                'status':     row[5] if len(row) > 5 else '進行中',
+                'drop_stage': row[6] if len(row) > 6 else '',
+                'drop_reason':row[7] if len(row) > 7 else '',
+                'memo':       row[8] if len(row) > 8 else '',
+            })
+        return candidates
+    except Exception as e:
+        print(f"Sheets接続エラー: {e}")
         return get_sample_data()
-
-    rows = ws.get_all_values()
-    if len(rows) <= 1:
-        return get_sample_data()
-
-    candidates = []
-    for row in rows[1:]:  # 1行目はヘッダー
-        if not row[0]:
-            continue
-        candidates.append({
-            'name':       row[0] if len(row) > 0 else '',
-            'ca':         row[1] if len(row) > 1 else '',
-            'company':    row[2] if len(row) > 2 else '',
-            'rec_date':   row[3] if len(row) > 3 else '',
-            'stage':      row[4] if len(row) > 4 else '',
-            'status':     row[5] if len(row) > 5 else '進行中',
-            'drop_stage': row[6] if len(row) > 6 else '',
-            'drop_reason':row[7] if len(row) > 7 else '',
-            'memo':       row[8] if len(row) > 8 else '',
-        })
-    return candidates
 
 def get_sample_data():
     """スプレッドシートが未設定の場合のサンプルデータ"""
