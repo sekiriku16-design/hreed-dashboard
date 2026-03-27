@@ -7,8 +7,6 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import urllib.parse
 import os
-import base64
-import tempfile
 
 # ===== 設定 =====
 SPREADSHEET_KEY = '1GPNWEtNnZemkrWm0Y4WhJODcBMTTKJbTJsK9Krj64os'
@@ -18,22 +16,12 @@ STAGES = ['推薦済み', '書類選考中', '一次面接', '二次面接', '�
 DROP_STAGES = ['推薦済み', '書類選考中', '初回面談後', '2回目面談後', '3回目面談後', '一次面接', '二次面接', '最終面接', '内定後']
 # ================================================
 
-# credentials.json をファイルまたは環境変数から読み込む
-_CREDS_ENV = os.environ.get('GOOGLE_CREDENTIALS_B64')
-if _CREDS_ENV:
-    import json as _json
-    _info = _json.loads(base64.b64decode(_CREDS_ENV).decode('utf-8'))
-    creds = Credentials.from_service_account_info(
-        _info,
-        scopes=['https://spreadsheets.google.com/feeds',
-                'https://www.googleapis.com/auth/drive']
-    )
-else:
-    creds = Credentials.from_service_account_file(
-        '/Users/sekineriku/hreed-ai/credentials.json',
-        scopes=['https://spreadsheets.google.com/feeds',
-                'https://www.googleapis.com/auth/drive']
-    )
+_creds_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'credentials.json')
+creds = Credentials.from_service_account_file(
+    _creds_path,
+    scopes=['https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive']
+)
 client = gspread.authorize(creds)
 
 def get_candidates():
