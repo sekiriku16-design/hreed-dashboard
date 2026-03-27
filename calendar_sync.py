@@ -49,6 +49,17 @@ PHASE_MAP = {
     '辞退':         ('',          '離脱'),
 }
 
+# ステージの優先順位（高いほど進んでいる）
+STAGE_PRIORITY = ['推薦済み', '書類選考中', '一次面接', '二次面接', '最終面接', '内定', '入社', '離脱']
+
+def get_phase_priority(phase):
+    stage, status = PHASE_MAP.get(phase, ('', ''))
+    if status == '離脱':
+        return len(STAGE_PRIORITY) - 1  # 辞退は最終状態として最優先
+    if stage in STAGE_PRIORITY:
+        return STAGE_PRIORITY.index(stage)
+    return -1
+
 # ===== 認証: Sheets（サービスアカウント）=====
 SHEETS_SCOPES = [
     'https://spreadsheets.google.com/feeds',
@@ -186,8 +197,16 @@ def sync():
                 continue
             start      = event.get('start', {})
             event_date = start.get('date') or start.get('dateTime', '')[:10]
-            if name not in candidate_map or event_date >= candidate_map[name]['date']:
+            current = candidate_map.get(name)
+            new_priority = get_phase_priority(phase)
+            if current is None:
                 candidate_map[name] = {'phase': phase, 'company': company, 'date': event_date}
+            elif new_priority > get_phase_priority(current['phase']):
+                # より進んだステージを優先
+                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date}
+            elif new_priority == get_phase_priority(current['phase']) and event_date >= current['date']:
+                # 同じステージなら日付が新しい方
+                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date}
 
         print(f"   候補者 {len(candidate_map)}人分を検出")
 
