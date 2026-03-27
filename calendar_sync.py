@@ -199,8 +199,8 @@ def sync():
 
         if batch_updates:
             ws.batch_update(batch_updates)
-        for row in new_rows:
-            ws.append_row(row)
+        if new_rows:
+            ws.append_rows(new_rows)
 
         total_added   += added
         total_updated += updated
