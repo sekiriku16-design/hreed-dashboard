@@ -1,3 +1,6 @@
 *.pyc
 __pycache__/
 credentials.json
+oauth_client.json
+oauth_token.json
+get_refresh_token.py

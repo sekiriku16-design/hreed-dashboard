@@ -1,5 +1,7 @@
 import gspread
 from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials as OAuthCredentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import warnings
 warnings.filterwarnings('ignore')
@@ -35,12 +37,12 @@ STAGE_ORDER = ['推薦済み', '書類選考中', '初回面談後', '2回目面
                '一次面接', '二次面接', '最終面接', '内定', '入社']
 
 # ===== 認証 =====
-SCOPES = [
+SHEETS_SCOPES = [
     'https://spreadsheets.google.com/feeds',
     'https://www.googleapis.com/auth/drive',
-    'https://www.googleapis.com/auth/calendar.readonly',
 ]
 
+# --- Sheets: サービスアカウント認証 ---
 _CREDS_ENV = os.environ.get('GOOGLE_CREDENTIALS_B64')
 if _CREDS_ENV:
     _info = json.loads(base64.b64decode(_CREDS_ENV.strip()).decode('utf-8'))
@@ -49,9 +51,43 @@ else:
     with open(_creds_path) as f:
         _info = json.load(f)
 
-creds = Credentials.from_service_account_info(_info, scopes=SCOPES)
-sheets_client = gspread.authorize(creds)
-calendar_service = build('googleapiclient', 'v3', credentials=creds, serviceName='calendar')
+sheets_creds = Credentials.from_service_account_info(_info, scopes=SHEETS_SCOPES)
+sheets_client = gspread.authorize(sheets_creds)
+
+# --- Calendar: OAuth2認証 ---
+def _build_calendar_service():
+    client_id = os.environ.get('OAUTH_CLIENT_ID')
+    client_secret = os.environ.get('OAUTH_CLIENT_SECRET')
+    refresh_token = os.environ.get('OAUTH_REFRESH_TOKEN')
+
+    if client_id and client_secret and refresh_token:
+        # Railway環境変数から取得
+        oauth_creds = OAuthCredentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri='https://oauth2.googleapis.com/token',
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+    else:
+        # ローカル: oauth_token.json から取得
+        token_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'oauth_token.json')
+        with open(token_path) as f:
+            token_data = json.load(f)
+        oauth_creds = OAuthCredentials(
+            token=None,
+            refresh_token=token_data['refresh_token'],
+            token_uri='https://oauth2.googleapis.com/token',
+            client_id=token_data['client_id'],
+            client_secret=token_data['client_secret'],
+        )
+
+    # トークンをリフレッシュ
+    oauth_creds.refresh(Request())
+    return build('calendar', 'v3', credentials=oauth_creds)
+
+calendar_service = _build_calendar_service()
+
 
 def parse_event_title(title):
     """【フェーズ】候補者名様 / 企業名 を解析"""
@@ -112,7 +148,6 @@ def sync():
     sheet = sheets_client.open_by_key(SPREADSHEET_KEY)
     ws = sheet.worksheet(SHEET_NAME)
     rows = ws.get_all_values()
-    headers = rows[0] if rows else []
 
     # 既存候補者の名前→行番号マップ
     existing = {}
@@ -133,7 +168,6 @@ def sync():
         drop_stage = ''
         drop_reason = ''
         if status == '離脱':
-            # 直前のステージを離脱ステージにする（簡易）
             drop_stage = '辞退'
             drop_reason = '辞退'
             stage = ''
@@ -141,7 +175,6 @@ def sync():
         if name in existing:
             # 既存候補者を更新
             row_num = existing[name]
-            # 企業名が空なら更新しない
             if company:
                 ws.update_cell(row_num, 3, company)
             ws.update_cell(row_num, 5, stage)
