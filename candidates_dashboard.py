@@ -1,12 +1,14 @@
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
 import warnings
 warnings.filterwarnings('ignore')
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import urllib.parse
 import os
+import re
 
 # ===== 設定 =====
 SPREADSHEET_KEY = '1GPNWEtNnZemkrWm0Y4WhJODcBMTTKJbTJsK9Krj64os'
@@ -137,6 +139,23 @@ def analyze(candidates):
 class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+
+        if path == '/sync':
+            try:
+                import calendar_sync
+                import importlib
+                importlib.reload(calendar_sync)
+                calendar_sync.sync()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'ok'}, ensure_ascii=False).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}, ensure_ascii=False).encode())
+            return
 
         if path == '/api/data':
             candidates = get_candidates()
@@ -288,6 +307,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     <div class="actions">
         <button class="btn btn-primary" onclick="loadData()">🔄 データ更新</button>
+        <button class="btn btn-primary" style="background:#34d399;margin-left:8px" onclick="syncCalendar()">📅 カレンダー同期</button>
     </div>
 
 <script>
@@ -414,6 +434,27 @@ function filterBy(filter) {
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     document.querySelector(`[onclick="filterBy('${filter}')"]`).classList.add('active');
     renderTable(filter);
+}
+
+async function syncCalendar() {
+    const btn = event.target;
+    btn.textContent = '⏳ 同期中...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/sync', {method: 'POST'});
+        const json = await res.json();
+        if (json.status === 'ok') {
+            btn.textContent = '✅ 同期完了！';
+            setTimeout(() => { btn.textContent = '📅 カレンダー同期'; btn.disabled = false; }, 2000);
+            loadData();
+        } else {
+            btn.textContent = '❌ エラー: ' + json.error;
+            btn.disabled = false;
+        }
+    } catch(e) {
+        btn.textContent = '❌ 失敗';
+        btn.disabled = false;
+    }
 }
 
 loadData();
