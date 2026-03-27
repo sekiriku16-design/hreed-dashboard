@@ -32,9 +32,13 @@ else:
 PHASE_MAP = {
     '求人提案': ('推薦済み',  '進行中'),
     '初回面談': ('書類選考中','進行中'),
+    '面談':     ('書類選考中','進行中'),  # 【面談】も初回面談として扱う
+    '2回目面談':('一次面接',  '進行中'),
     '二次面談': ('一次面接',  '進行中'),
+    '3回目面談':('二次面接',  '進行中'),
     '三次面談': ('二次面接',  '進行中'),
     '面接対策': ('最終面接',  '進行中'),
+    '一次面接': ('一次面接',  '進行中'),
     '二次面接': ('二次面接',  '進行中'),
     '最終面接': ('最終面接',  '進行中'),
     '内定':     ('内定',      '内定'),
@@ -90,13 +94,16 @@ calendar_service = _build_calendar_service()
 
 
 def parse_event_title(title):
-    """【フェーズ】候補者名様 / 企業名 を解析"""
-    match = re.match(r'【(.+?)】(.+?)(?:様|さま)?\s*(?:/\s*(.+))?$', title.strip())
+    """【フェーズ】候補者名様 / 企業名 を解析（先頭に番号や記号があってもOK）"""
+    # 先頭の番号・記号・スペースをスキップして【】を探す
+    match = re.search(r'【(.+?)】(.+?)(?:様|さま|さん)?\s*(?:[/／]\s*(.+))?$', title.strip())
     if not match:
         return None, None, None
     phase   = match.group(1).strip()
-    name    = match.group(2).strip() + '様'
-    name    = name.replace('様様', '様')
+    name    = match.group(2).strip()
+    # 敬称を統一して「様」に
+    if not name.endswith('様'):
+        name = name + '様'
     company = match.group(3).strip() if match.group(3) else ''
     return phase, name, company
 
