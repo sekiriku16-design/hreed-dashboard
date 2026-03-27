@@ -18,14 +18,16 @@ SYNC_DAYS_PAST = 90
 SYNC_DAYS_FUTURE = 30
 
 # CA名 → カレンダーID のマッピング
-# 環境変数 CALENDAR_IDS_JSON で上書き可能
-# 例: {"関根": "r.sekine@hreed.co.jp", "柴田": "s.shibata@hreed.co.jp"}
 _cal_env = os.environ.get('CALENDAR_IDS_JSON')
 if _cal_env:
     CALENDAR_MAP = json.loads(_cal_env)
 else:
     CALENDAR_MAP = {
         '関根': 'r.sekine@hreed.co.jp',
+        '柴田': 'k.shibata@hreed.co.jp',
+        '荻野': 'm.ogino@hreed.co.jp',
+        '市川': 't.ichikawa@hreed.co.jp',
+        '片山': 'y.katayama@hreed.co.jp',
     }
 
 # カレンダータイトル → ステージのマッピング
@@ -94,16 +96,13 @@ calendar_service = _build_calendar_service()
 
 
 def parse_event_title(title):
-    """【フェーズ】候補者名様 / 企業名 を解析（先頭に番号や記号があってもOK）"""
-    # 先頭の番号・記号・スペースをスキップして【】を探す
-    match = re.search(r'【(.+?)】(.+?)(?:様|さま|さん)?\s*(?:[/／]\s*(.+))?$', title.strip())
+    """【フェーズ】候補者名様 / 企業名 を解析（様・さまが必須）"""
+    # 先頭の番号・記号をスキップして【】を探す、名前の末尾に様/さまが必須
+    match = re.search(r'【(.+?)】(.+?)(?:様|さま)\s*(?:[/／]\s*(.+))?$', title.strip())
     if not match:
         return None, None, None
     phase   = match.group(1).strip()
-    name    = match.group(2).strip()
-    # 敬称を統一して「様」に
-    if not name.endswith('様'):
-        name = name + '様'
+    name    = match.group(2).strip() + '様'
     company = match.group(3).strip() if match.group(3) else ''
     return phase, name, company
 
