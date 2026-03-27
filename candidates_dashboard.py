@@ -16,9 +16,19 @@ STAGES = ['推薦済み', '書類選考中', '一次面接', '二次面接', '�
 DROP_STAGES = ['推薦済み', '書類選考中', '初回面談後', '2回目面談後', '3回目面談後', '一次面接', '二次面接', '最終面接', '内定後']
 # ================================================
 
-_creds_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'credentials.json')
-creds = Credentials.from_service_account_file(
-    _creds_path,
+import json as _json
+import base64 as _base64
+
+_CREDS_ENV = os.environ.get('GOOGLE_CREDENTIALS_B64')
+if _CREDS_ENV:
+    _info = _json.loads(_base64.b64decode(_CREDS_ENV.strip()).decode('utf-8'))
+else:
+    _creds_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'credentials.json')
+    with open(_creds_path) as f:
+        _info = _json.load(f)
+
+creds = Credentials.from_service_account_info(
+    _info,
     scopes=['https://spreadsheets.google.com/feeds',
             'https://www.googleapis.com/auth/drive']
 )
