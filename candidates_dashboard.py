@@ -175,6 +175,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             next_sync = now.replace(hour=AUTO_SYNC_HOUR_JST, minute=0, second=0, microsecond=0)
             if now >= next_sync:
                 next_sync += timedelta(days=1)
+            ca_list = sorted(set(c['ca'] for c in candidates if c['ca']))
             self.send_response(200)
             self.send_header('Content-type', 'application/json; charset=utf-8')
             self.end_headers()
@@ -183,6 +184,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'candidates': candidates,
                 'last_sync': last_sync_time,
                 'next_sync': next_sync.strftime('%m/%d %H:%M'),
+                'ca_list': ca_list,
             }, ensure_ascii=False).encode('utf-8'))
             return
 
@@ -312,13 +314,14 @@ tr:hover td { background:#162032; }
 
 <div class="table-wrap">
   <div class="card-title">👥 候補者リスト（直近3ヶ月）</div>
-  <div class="filter-row">
-    <button class="filter-btn active" onclick="filterBy('all',this)">すべて</button>
-    <button class="filter-btn" onclick="filterBy('進行中',this)">進行中</button>
-    <button class="filter-btn" onclick="filterBy('離脱',this)">離脱</button>
-    <button class="filter-btn" onclick="filterBy('内定',this)">内定</button>
-    <button class="filter-btn" onclick="filterBy('入社',this)">入社</button>
+  <div class="filter-row" id="status-filter">
+    <button class="filter-btn active" onclick="filterBy('status','all',this)">すべて</button>
+    <button class="filter-btn" onclick="filterBy('status','進行中',this)">進行中</button>
+    <button class="filter-btn" onclick="filterBy('status','離脱',this)">離脱</button>
+    <button class="filter-btn" onclick="filterBy('status','内定',this)">内定</button>
+    <button class="filter-btn" onclick="filterBy('status','入社',this)">入社</button>
   </div>
+  <div class="filter-row" id="ca-filter" style="margin-top:-4px"></div>
   <table>
     <thead>
       <tr>
@@ -331,12 +334,26 @@ tr:hover td { background:#162032; }
 
 <script>
 let allCandidates = [];
+let currentStatus = 'all';
+let currentCA = 'all';
 
 async function loadData() {
   const res = await fetch('/api/data');
   const data = await res.json();
-  const { stats, candidates, last_sync, next_sync } = data;
+  const { stats, candidates, last_sync, next_sync, ca_list } = data;
   allCandidates = candidates;
+
+  // CA別フィルターボタンを動的生成
+  const caFilter = document.getElementById('ca-filter');
+  if (ca_list && ca_list.length > 1) {
+    caFilter.innerHTML = `
+      <span style="font-size:11px;color:#475569;margin-right:4px">CA:</span>
+      <button class="filter-btn active" onclick="filterBy('ca','all',this)">全員</button>
+      ${ca_list.map(ca => `<button class="filter-btn" onclick="filterBy('ca','${ca}',this)">${ca}</button>`).join('')}
+    `;
+  } else {
+    caFilter.innerHTML = '';
+  }
 
   document.getElementById('update-time').textContent = '最終更新: ' + new Date().toLocaleString('ja-JP');
   document.getElementById('last-sync').textContent = last_sync || '未同期';
@@ -386,11 +403,13 @@ async function loadData() {
     ? sorted.map(([r,cnt]) => `<div class="reason-row"><span class="reason-name">${r}</span><span class="reason-count">${cnt}件</span></div>`).join('')
     : '<div class="empty">離脱データなし</div>';
 
-  renderTable('all');
+  renderTable();
 }
 
-function renderTable(filter) {
-  const filtered = filter === 'all' ? allCandidates : allCandidates.filter(c => c.status === filter);
+function renderTable() {
+  let filtered = allCandidates;
+  if (currentStatus !== 'all') filtered = filtered.filter(c => c.status === currentStatus);
+  if (currentCA !== 'all')     filtered = filtered.filter(c => c.ca === currentCA);
   document.getElementById('table-body').innerHTML = filtered.length > 0
     ? filtered.map(c => `<tr>
         <td>${c.name}</td>
@@ -404,10 +423,13 @@ function renderTable(filter) {
     : `<tr><td colspan="7" style="color:#475569;text-align:center;padding:24px">データなし</td></tr>`;
 }
 
-function filterBy(filter, btn) {
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+function filterBy(type, value, btn) {
+  const groupId = type === 'status' ? 'status-filter' : 'ca-filter';
+  document.querySelectorAll(`#${groupId} .filter-btn`).forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  renderTable(filter);
+  if (type === 'status') currentStatus = value;
+  else currentCA = value;
+  renderTable();
 }
 
 async function syncCalendar() {

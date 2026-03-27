@@ -14,35 +14,39 @@ from datetime import datetime, timedelta, timezone
 # ===== 設定 =====
 SPREADSHEET_KEY = '1GPNWEtNnZemkrWm0Y4WhJODcBMTTKJbTJsK9Krj64os'
 SHEET_NAME = '候補者管理'
-CALENDAR_ID = 'r.sekine@hreed.co.jp'  # 関根さんのカレンダーID
-SYNC_DAYS_PAST = 90    # 過去何日分を取得するか
-SYNC_DAYS_FUTURE = 30  # 未来何日分を取得するか
+SYNC_DAYS_PAST = 90
+SYNC_DAYS_FUTURE = 30
+
+# CA名 → カレンダーID のマッピング
+# 環境変数 CALENDAR_IDS_JSON で上書き可能
+# 例: {"関根": "r.sekine@hreed.co.jp", "柴田": "s.shibata@hreed.co.jp"}
+_cal_env = os.environ.get('CALENDAR_IDS_JSON')
+if _cal_env:
+    CALENDAR_MAP = json.loads(_cal_env)
+else:
+    CALENDAR_MAP = {
+        '関根': 'r.sekine@hreed.co.jp',
+    }
 
 # カレンダータイトル → ステージのマッピング
 PHASE_MAP = {
-    '求人提案':  ('推薦済み',    '進行中'),
-    '初回面談':  ('書類選考中',  '進行中'),
-    '二次面談':  ('一次面接',    '進行中'),
-    '三次面談':  ('二次面接',    '進行中'),
-    '面接対策':  ('最終面接',    '進行中'),
-    '二次面接':  ('二次面接',    '進行中'),
-    '最終面接':  ('最終面接',    '進行中'),
-    '内定':      ('内定',        '内定'),
-    '入社':      ('入社',        '入社'),
-    '辞退':      ('',            '離脱'),
+    '求人提案': ('推薦済み',  '進行中'),
+    '初回面談': ('書類選考中','進行中'),
+    '二次面談': ('一次面接',  '進行中'),
+    '三次面談': ('二次面接',  '進行中'),
+    '面接対策': ('最終面接',  '進行中'),
+    '二次面接': ('二次面接',  '進行中'),
+    '最終面接': ('最終面接',  '進行中'),
+    '内定':     ('内定',      '内定'),
+    '入社':     ('入社',      '入社'),
+    '辞退':     ('',          '離脱'),
 }
 
-# ステージの順序（後のフェーズが優先）
-STAGE_ORDER = ['推薦済み', '書類選考中', '初回面談後', '2回目面談後', '3回目面談後',
-               '一次面接', '二次面接', '最終面接', '内定', '入社']
-
-# ===== 認証 =====
+# ===== 認証: Sheets（サービスアカウント）=====
 SHEETS_SCOPES = [
     'https://spreadsheets.google.com/feeds',
     'https://www.googleapis.com/auth/drive',
 ]
-
-# --- Sheets: サービスアカウント認証 ---
 _CREDS_ENV = os.environ.get('GOOGLE_CREDENTIALS_B64')
 if _CREDS_ENV:
     _info = json.loads(base64.b64decode(_CREDS_ENV.strip()).decode('utf-8'))
@@ -54,14 +58,13 @@ else:
 sheets_creds = Credentials.from_service_account_info(_info, scopes=SHEETS_SCOPES)
 sheets_client = gspread.authorize(sheets_creds)
 
-# --- Calendar: OAuth2認証 ---
+# ===== 認証: Calendar（OAuth2）=====
 def _build_calendar_service():
-    client_id = os.environ.get('OAUTH_CLIENT_ID')
+    client_id     = os.environ.get('OAUTH_CLIENT_ID')
     client_secret = os.environ.get('OAUTH_CLIENT_SECRET')
     refresh_token = os.environ.get('OAUTH_REFRESH_TOKEN')
 
     if client_id and client_secret and refresh_token:
-        # Railway環境変数から取得
         oauth_creds = OAuthCredentials(
             token=None,
             refresh_token=refresh_token,
@@ -70,7 +73,6 @@ def _build_calendar_service():
             client_secret=client_secret,
         )
     else:
-        # ローカル: oauth_token.json から取得
         token_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'oauth_token.json')
         with open(token_path) as f:
             token_data = json.load(f)
@@ -81,8 +83,6 @@ def _build_calendar_service():
             client_id=token_data['client_id'],
             client_secret=token_data['client_secret'],
         )
-
-    # トークンをリフレッシュ
     oauth_creds.refresh(Request())
     return build('calendar', 'v3', credentials=oauth_creds)
 
@@ -91,24 +91,24 @@ calendar_service = _build_calendar_service()
 
 def parse_event_title(title):
     """【フェーズ】候補者名様 / 企業名 を解析"""
-    match = re.match(r'【(.+?)】(.+?)様?\s*(?:/\s*(.+))?$', title.strip())
+    match = re.match(r'【(.+?)】(.+?)(?:様|さま)?\s*(?:/\s*(.+))?$', title.strip())
     if not match:
         return None, None, None
-    phase = match.group(1).strip()
-    name = match.group(2).strip() + '様'
-    name = name.replace('様様', '様')
+    phase   = match.group(1).strip()
+    name    = match.group(2).strip() + '様'
+    name    = name.replace('様様', '様')
     company = match.group(3).strip() if match.group(3) else ''
     return phase, name, company
 
-def get_calendar_events():
-    """カレンダーからイベントを取得"""
+def get_calendar_events(calendar_id):
+    """指定カレンダーからイベントを取得"""
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst)
     time_min = (now - timedelta(days=SYNC_DAYS_PAST)).isoformat()
     time_max = (now + timedelta(days=SYNC_DAYS_FUTURE)).isoformat()
 
     events_result = calendar_service.events().list(
-        calendarId=CALENDAR_ID,
+        calendarId=calendar_id,
         timeMin=time_min,
         timeMax=time_max,
         singleEvents=True,
@@ -118,89 +118,87 @@ def get_calendar_events():
     return events_result.get('items', [])
 
 def sync():
-    print("📅 カレンダーからイベントを取得中...")
-    events = get_calendar_events()
-    print(f"   {len(events)}件のイベントを取得")
-
-    # 候補者ごとに最新フェーズを集約
-    candidate_map = {}  # name -> {phase, company, date, event_date}
-
-    for event in events:
-        title = event.get('summary', '')
-        phase, name, company = parse_event_title(title)
-        if not phase or phase not in PHASE_MAP:
-            continue
-
-        start = event.get('start', {})
-        event_date = start.get('date') or start.get('dateTime', '')[:10]
-
-        # 同じ候補者で複数イベントがある場合、日付が新しいものを優先
-        if name not in candidate_map or event_date >= candidate_map[name]['date']:
-            candidate_map[name] = {
-                'phase': phase,
-                'company': company,
-                'date': event_date,
-            }
-
-    print(f"   候補者 {len(candidate_map)}人分を検出")
-
-    # スプレッドシートを取得
     sheet = sheets_client.open_by_key(SPREADSHEET_KEY)
-    ws = sheet.worksheet(SHEET_NAME)
-    rows = ws.get_all_values()
+    ws    = sheet.worksheet(SHEET_NAME)
+    rows  = ws.get_all_values()
 
-    # 既存候補者の名前→行番号マップ
+    # 既存候補者: 名前 → 行番号
     existing = {}
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0]:
             existing[row[0]] = i
 
-    added = 0
-    updated = 0
-    batch_updates = []
-    new_rows = []
+    total_added   = 0
+    total_updated = 0
 
-    for name, info in candidate_map.items():
-        phase = info['phase']
-        stage, status = PHASE_MAP[phase]
-        company = info['company']
-        date = info['date']
+    for ca_name, calendar_id in CALENDAR_MAP.items():
+        print(f"\n📅 [{ca_name}] カレンダー取得中... ({calendar_id})")
+        try:
+            events = get_calendar_events(calendar_id)
+        except Exception as e:
+            print(f"   ⚠️ 取得失敗: {e}")
+            continue
+        print(f"   {len(events)}件取得")
 
-        # 離脱の場合
-        drop_stage = ''
-        drop_reason = ''
-        if status == '離脱':
-            drop_stage = '辞退'
-            drop_reason = '辞退'
-            stage = ''
+        # 候補者ごとに最新フェーズを集約
+        candidate_map = {}
+        for event in events:
+            title = event.get('summary', '')
+            phase, name, company = parse_event_title(title)
+            if not phase or phase not in PHASE_MAP:
+                continue
+            start      = event.get('start', {})
+            event_date = start.get('date') or start.get('dateTime', '')[:10]
+            if name not in candidate_map or event_date >= candidate_map[name]['date']:
+                candidate_map[name] = {'phase': phase, 'company': company, 'date': event_date}
 
-        if name in existing:
-            row_num = existing[name]
-            # バッチ更新用にまとめる
-            if company:
-                batch_updates.append({'range': f'C{row_num}', 'values': [[company]]})
-            batch_updates.append({'range': f'E{row_num}', 'values': [[stage]]})
-            batch_updates.append({'range': f'F{row_num}', 'values': [[status]]})
-            if drop_stage:
-                batch_updates.append({'range': f'G{row_num}', 'values': [[drop_stage]]})
-            if drop_reason:
-                batch_updates.append({'range': f'H{row_num}', 'values': [[drop_reason]]})
-            updated += 1
-            print(f"   ✏️  更新: {name} → {stage or '離脱'}")
-        else:
-            new_rows.append([name, '関根', company, date, stage, status, drop_stage, drop_reason, ''])
-            added += 1
-            print(f"   ➕ 追加: {name} → {stage or '離脱'}")
+        print(f"   候補者 {len(candidate_map)}人分を検出")
 
-    # バッチ更新を一括実行
-    if batch_updates:
-        ws.batch_update(batch_updates)
+        batch_updates = []
+        new_rows      = []
+        added = updated = 0
 
-    # 新規行を追加
-    for row in new_rows:
-        ws.append_row(row)
+        for name, info in candidate_map.items():
+            phase       = info['phase']
+            stage, status = PHASE_MAP[phase]
+            company     = info['company']
+            date        = info['date']
+            drop_stage  = ''
+            drop_reason = ''
 
-    print(f"\n✅ 同期完了！ 追加: {added}人 / 更新: {updated}人")
+            if status == '離脱':
+                drop_stage  = '辞退'
+                drop_reason = '辞退'
+                stage       = ''
+
+            if name in existing:
+                row_num = existing[name]
+                if company:
+                    batch_updates.append({'range': f'C{row_num}', 'values': [[company]]})
+                batch_updates.append({'range': f'E{row_num}', 'values': [[stage]]})
+                batch_updates.append({'range': f'F{row_num}', 'values': [[status]]})
+                if drop_stage:
+                    batch_updates.append({'range': f'G{row_num}', 'values': [[drop_stage]]})
+                if drop_reason:
+                    batch_updates.append({'range': f'H{row_num}', 'values': [[drop_reason]]})
+                updated += 1
+                print(f"   ✏️  更新: {name} → {stage or '離脱'}")
+            else:
+                new_rows.append([name, ca_name, company, date, stage, status, drop_stage, drop_reason, ''])
+                # 既存マップにも追加（同じ名前が他CAにも出た場合の重複防止）
+                existing[name] = len(rows) + len(new_rows)
+                added += 1
+                print(f"   ➕ 追加: {name} → {stage or '離脱'}")
+
+        if batch_updates:
+            ws.batch_update(batch_updates)
+        for row in new_rows:
+            ws.append_row(row)
+
+        total_added   += added
+        total_updated += updated
+
+    print(f"\n✅ 同期完了！ 追加: {total_added}人 / 更新: {total_updated}人")
 
 if __name__ == '__main__':
     sync()
