@@ -96,15 +96,34 @@ calendar_service = _build_calendar_service()
 
 
 def parse_event_title(title):
-    """【フェーズ】候補者名様 / 企業名 を解析（様・さまが必須）"""
-    # 先頭の番号・記号をスキップして【】を探す、名前の末尾に様/さまが必須
-    match = re.search(r'【(.+?)】(.+?)(?:様|さま)\s*(?:[/／]\s*(.+))?$', title.strip())
-    if not match:
+    """
+    以下のフォーマットに対応:
+    1. 【初回面談】田中太郎様 / 企業名
+    2. 【BIZ/市川】田中太郎様_カジュアル面談  → フェーズは「_」以降
+    3. 【面談】田中さん  → さん も可
+    """
+    t = title.strip()
+
+    # パターン2: 【部署/CA】候補者名様_フェーズ
+    m2 = re.search(r'【[^】]*[/／][^】]*】(.+?)(?:様|さま)\s*[_＿]\s*(.+)', t)
+    if m2:
+        name_part = m2.group(1).strip() + '様'
+        phase_part = m2.group(2).strip()
+        # フェーズ部分から対応するキーを探す
+        for key in PHASE_MAP:
+            if key in phase_part:
+                return key, name_part, ''
         return None, None, None
-    phase   = match.group(1).strip()
-    name    = match.group(2).strip() + '様'
-    company = match.group(3).strip() if match.group(3) else ''
-    return phase, name, company
+
+    # パターン1: 【フェーズ】候補者名様 / 企業名（様・さま・さん 可）
+    m1 = re.search(r'【(.+?)】(.+?)(?:様|さま|さん)\s*(?:[/／]\s*(.+))?$', t)
+    if m1:
+        phase   = m1.group(1).strip()
+        name    = m1.group(2).strip() + '様'
+        company = m1.group(3).strip() if m1.group(3) else ''
+        return phase, name, company
+
+    return None, None, None
 
 def get_calendar_events(calendar_id):
     """指定カレンダーからイベントを取得"""
