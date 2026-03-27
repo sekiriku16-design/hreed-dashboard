@@ -92,6 +92,25 @@ def analyze(candidates):
 
     mendan_drops = {s: drop_by_stage.get(s, 0) for s in ['初回面談後', '2回目面談後', '3回目面談後']}
 
+    # CA別集計
+    ca_names = sorted(set(c['ca'] for c in candidates if c['ca']))
+    ca_stats = []
+    for ca in ca_names:
+        ca_candidates = [c for c in candidates if c['ca'] == ca]
+        ca_total   = len(ca_candidates)
+        ca_active  = len([c for c in ca_candidates if c['status'] == '進行中'])
+        ca_dropped = len([c for c in ca_candidates if c['status'] == '離脱'])
+        ca_offers  = len([c for c in ca_candidates if c['status'] in ['内定', '入社']])
+        ca_stats.append({
+            'ca': ca,
+            'total': ca_total,
+            'active': ca_active,
+            'dropped': ca_dropped,
+            'offers': ca_offers,
+            'drop_rate': round(ca_dropped / ca_total * 100, 1) if ca_total > 0 else 0,
+            'offer_rate': round(ca_offers / ca_total * 100, 1) if ca_total > 0 else 0,
+        })
+
     return {
         'total': total,
         'active': len(active),
@@ -105,6 +124,7 @@ def analyze(candidates):
         'drop_reasons': drop_reasons,
         'funnel': funnel,
         'mendan_drops': mendan_drops,
+        'ca_stats': ca_stats,
     }
 
 def do_sync():
@@ -302,6 +322,11 @@ tr:hover td { background:#162032; }
   </div>
 </div>
 
+<div class="card" style="margin-bottom:20px">
+  <div class="card-title">👤 CA別 実績</div>
+  <div id="ca-stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:4px"></div>
+</div>
+
 <div class="table-wrap">
   <div class="card-title">👥 候補者リスト（直近3ヶ月）</div>
   <div class="filter-row" id="status-filter">
@@ -392,6 +417,36 @@ async function loadData() {
   document.getElementById('drop-reasons').innerHTML = sorted.length > 0
     ? sorted.map(([r,cnt]) => `<div class="reason-row"><span class="reason-name">${r}</span><span class="reason-count">${cnt}件</span></div>`).join('')
     : '<div class="empty">離脱データなし</div>';
+
+  // CA別実績
+  const caGrid = document.getElementById('ca-stats-grid');
+  if (stats.ca_stats && stats.ca_stats.length > 0) {
+    caGrid.innerHTML = stats.ca_stats.map(ca => `
+      <div style="background:#0f172a;border-radius:10px;padding:16px;border-top:3px solid #38bdf8">
+        <div style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:12px">👤 ${ca.ca}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:10px;color:#475569;margin-bottom:2px">総候補者</div>
+            <div style="font-size:22px;font-weight:700;color:#38bdf8">${ca.total}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#475569;margin-bottom:2px">進行中</div>
+            <div style="font-size:22px;font-weight:700;color:#34d399">${ca.active}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#475569;margin-bottom:2px">離脱</div>
+            <div style="font-size:18px;font-weight:700;color:#f87171">${ca.dropped} <span style="font-size:11px">(${ca.drop_rate}%)</span></div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#475569;margin-bottom:2px">内定・入社</div>
+            <div style="font-size:18px;font-weight:700;color:#fbbf24">${ca.offers} <span style="font-size:11px">(${ca.offer_rate}%)</span></div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } else {
+    caGrid.innerHTML = '<div style="color:#475569;font-size:13px">CAデータなし</div>';
+  }
 
   renderTable();
 }
