@@ -157,6 +157,8 @@ def sync():
 
     added = 0
     updated = 0
+    batch_updates = []
+    new_rows = []
 
     for name, info in candidate_map.items():
         phase = info['phase']
@@ -173,24 +175,30 @@ def sync():
             stage = ''
 
         if name in existing:
-            # 既存候補者を更新
             row_num = existing[name]
+            # バッチ更新用にまとめる
             if company:
-                ws.update_cell(row_num, 3, company)
-            ws.update_cell(row_num, 5, stage)
-            ws.update_cell(row_num, 6, status)
+                batch_updates.append({'range': f'C{row_num}', 'values': [[company]]})
+            batch_updates.append({'range': f'E{row_num}', 'values': [[stage]]})
+            batch_updates.append({'range': f'F{row_num}', 'values': [[status]]})
             if drop_stage:
-                ws.update_cell(row_num, 7, drop_stage)
+                batch_updates.append({'range': f'G{row_num}', 'values': [[drop_stage]]})
             if drop_reason:
-                ws.update_cell(row_num, 8, drop_reason)
+                batch_updates.append({'range': f'H{row_num}', 'values': [[drop_reason]]})
             updated += 1
             print(f"   ✏️  更新: {name} → {stage or '離脱'}")
         else:
-            # 新規候補者を追加
-            new_row = [name, '関根', company, date, stage, status, drop_stage, drop_reason, '']
-            ws.append_row(new_row)
+            new_rows.append([name, '関根', company, date, stage, status, drop_stage, drop_reason, ''])
             added += 1
             print(f"   ➕ 追加: {name} → {stage or '離脱'}")
+
+    # バッチ更新を一括実行
+    if batch_updates:
+        ws.batch_update(batch_updates)
+
+    # 新規行を追加
+    for row in new_rows:
+        ws.append_row(row)
 
     print(f"\n✅ 同期完了！ 追加: {added}人 / 更新: {updated}人")
 
