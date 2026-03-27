@@ -137,24 +137,33 @@ def analyze(candidates):
     }
 
 class DashboardHandler(BaseHTTPRequestHandler):
+    def _handle_sync(self):
+        try:
+            import calendar_sync
+            import importlib
+            importlib.reload(calendar_sync)
+            calendar_sync.sync()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'ok'}, ensure_ascii=False).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}, ensure_ascii=False).encode())
+
+    def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path == '/sync':
+            self._handle_sync()
+            return
+
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
 
         if path == '/sync':
-            try:
-                import calendar_sync
-                import importlib
-                importlib.reload(calendar_sync)
-                calendar_sync.sync()
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json; charset=utf-8')
-                self.end_headers()
-                self.wfile.write(json.dumps({'status': 'ok'}, ensure_ascii=False).encode())
-            except Exception as e:
-                self.send_response(500)
-                self.send_header('Content-type', 'application/json; charset=utf-8')
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': str(e)}, ensure_ascii=False).encode())
+            self._handle_sync()
             return
 
         if path == '/api/data':
