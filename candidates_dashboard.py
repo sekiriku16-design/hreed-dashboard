@@ -17,7 +17,7 @@ SPREADSHEET_KEY = '1GPNWEtNnZemkrWm0Y4WhJODcBMTTKJbTJsK9Krj64os'
 SHEET_NAME = '候補者管理'
 STAGES = ['推薦済み', '書類選考中', '一次面接', '二次面接', '最終面接', '内定', '入社']
 DROP_STAGES = ['推薦済み', '書類選考中', '初回面談後', '2回目面談後', '3回目面談後', '一次面接', '二次面接', '最終面接', '内定後']
-AUTO_SYNC_HOUR_JST = 8  # 毎朝8時に自動同期
+AUTO_SYNC_INTERVAL_HOURS = 2  # 2時間おきに自動同期
 
 # ===== 認証 =====
 _CREDS_ENV = os.environ.get('GOOGLE_CREDENTIALS_B64')
@@ -123,17 +123,9 @@ def do_sync():
         return False, str(e)
 
 def auto_sync_loop():
-    """毎朝8時（JST）に自動同期"""
-    jst = timezone(timedelta(hours=9))
+    """2時間おきに自動同期"""
     while True:
-        now = datetime.now(jst)
-        # 次の8時を計算
-        next_sync = now.replace(hour=AUTO_SYNC_HOUR_JST, minute=0, second=0, microsecond=0)
-        if now >= next_sync:
-            next_sync += timedelta(days=1)
-        wait_sec = (next_sync - now).total_seconds()
-        print(f"⏰ 次回自動同期: {next_sync.strftime('%Y/%m/%d %H:%M')} （{int(wait_sec//3600)}時間後）")
-        time.sleep(wait_sec)
+        time.sleep(AUTO_SYNC_INTERVAL_HOURS * 3600)
         print("🔄 自動同期開始...")
         do_sync()
 
@@ -172,9 +164,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             stats = analyze(candidates)
             jst = timezone(timedelta(hours=9))
             now = datetime.now(jst)
-            next_sync = now.replace(hour=AUTO_SYNC_HOUR_JST, minute=0, second=0, microsecond=0)
-            if now >= next_sync:
-                next_sync += timedelta(days=1)
+            next_sync = now + timedelta(hours=AUTO_SYNC_INTERVAL_HOURS)
             ca_list = sorted(set(c['ca'] for c in candidates if c['ca']))
             self.send_response(200)
             self.send_header('Content-type', 'application/json; charset=utf-8')
@@ -283,7 +273,7 @@ tr:hover td { background:#162032; }
   </div>
   <div class="header-right">
     <div class="sync-info">最終同期: <span id="last-sync">-</span></div>
-    <div class="sync-info">次回自動同期: <span id="next-sync">-</span>（毎朝8時）</div>
+    <div class="sync-info">次回自動同期: <span id="next-sync">-</span>（2時間おき）</div>
     <div class="btn-row">
       <button class="btn btn-blue"  onclick="loadData()">🔄 データ更新</button>
       <button class="btn btn-green" id="sync-btn" onclick="syncCalendar()">📅 カレンダー同期</button>
