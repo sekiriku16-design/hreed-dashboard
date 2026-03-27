@@ -172,9 +172,13 @@ def sync():
 
     # 既存候補者: 名前 → 行番号
     existing = {}
+    # 離脱済み候補者: 同期で上書きしない
+    dropped_names = set()
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0]:
             existing[row[0]] = i
+            if len(row) > 5 and row[5] == '離脱':
+                dropped_names.add(row[0])
 
     total_added   = 0
     total_updated = 0
@@ -215,6 +219,11 @@ def sync():
         added = updated = 0
 
         for name, info in candidate_map.items():
+            # 手動で離脱済みの候補者は上書きしない
+            if name in dropped_names:
+                print(f"   ⏭️  スキップ（離脱済み）: {name}")
+                continue
+
             phase       = info['phase']
             stage, status = PHASE_MAP[phase]
             company     = info['company']
