@@ -240,6 +240,7 @@ def sync():
                 row_num = existing[name]
                 if company:
                     batch_updates.append({'range': f'C{row_num}', 'values': [[company]]})
+                batch_updates.append({'range': f'D{row_num}', 'values': [[date]]})  # 最終イベント日を更新
                 batch_updates.append({'range': f'E{row_num}', 'values': [[stage]]})
                 batch_updates.append({'range': f'F{row_num}', 'values': [[status]]})
                 if drop_stage:
@@ -263,7 +264,53 @@ def sync():
         total_added   += added
         total_updated += updated
 
-    print(f"\n✅ 同期完了！ 追加: {total_added}人 / 更新: {total_updated}人")
+    # ===== 2週間以上動きがない進行中候補者を自動離脱に =====
+    auto_dropped = _auto_drop_inactive(ws, rows)
+    print(f"\n✅ 同期完了！ 追加: {total_added}人 / 更新: {total_updated}人 / 自動離脱: {auto_dropped}人")
+
+def _auto_drop_inactive(ws, rows, days=14):
+    """最終イベントから指定日数以上経過した進行中候補者を自動離脱にする"""
+    jst = timezone(timedelta(hours=9))
+    today = datetime.now(jst).date()
+    threshold = today - timedelta(days=days)
+
+    auto_dropped = 0
+    batch_updates = []
+
+    for i, row in enumerate(rows[1:], start=2):
+        if not row or not row[0]:
+            continue
+        name   = row[0]
+        status = row[5] if len(row) > 5 else ''
+        date_str = row[3] if len(row) > 3 else ''  # 推薦日 or 最終イベント日
+
+        # 進行中以外はスキップ
+        if status != '進行中':
+            continue
+
+        # 日付をパース
+        if not date_str:
+            continue
+        try:
+            last_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            try:
+                last_date = datetime.strptime(date_str, '%Y/%m/%d').date()
+            except ValueError:
+                continue
+
+        # 14日以上経過していたら自動離脱
+        if last_date <= threshold:
+            batch_updates.append({'range': f'F{i}', 'values': [['離脱']]})
+            batch_updates.append({'range': f'G{i}', 'values': [['長期未更新']]})
+            batch_updates.append({'range': f'H{i}', 'values': [[f'{days}日以上更新なし']]})
+            auto_dropped += 1
+            print(f"   🕐 自動離脱: {name}（最終更新: {date_str}）")
+
+    if batch_updates:
+        ws.batch_update(batch_updates)
+
+    return auto_dropped
 
 if __name__ == '__main__':
     sync()
