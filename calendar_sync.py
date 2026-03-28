@@ -155,15 +155,25 @@ def get_calendar_events(calendar_id):
     time_min = (now - timedelta(days=SYNC_DAYS_PAST)).isoformat()
     time_max = (now + timedelta(days=SYNC_DAYS_FUTURE)).isoformat()
 
-    events_result = calendar_service.events().list(
-        calendarId=calendar_id,
-        timeMin=time_min,
-        timeMax=time_max,
-        singleEvents=True,
-        orderBy='startTime',
-        maxResults=500,
-    ).execute()
-    return events_result.get('items', [])
+    all_events = []
+    page_token = None
+    while True:
+        params = dict(
+            calendarId=calendar_id,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy='startTime',
+            maxResults=2500,
+        )
+        if page_token:
+            params['pageToken'] = page_token
+        result = calendar_service.events().list(**params).execute()
+        all_events.extend(result.get('items', []))
+        page_token = result.get('nextPageToken')
+        if not page_token:
+            break
+    return all_events
 
 def sync():
     sheet = sheets_client.open_by_key(SPREADSHEET_KEY)
