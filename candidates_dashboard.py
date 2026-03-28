@@ -96,7 +96,6 @@ def analyze(candidates):
     # CA別集計
     ca_names = sorted(set(c['ca'] for c in candidates if c['ca']))
     ca_stats = []
-    DROP_STAGE_LABELS = ['初回面談後', '2回目面談後', '3回目面談後', '書類選考中', '一次面接', '二次面接', '最終面接']
     for ca in ca_names:
         ca_candidates = [c for c in candidates if c['ca'] == ca]
         ca_total   = len(ca_candidates)
@@ -104,7 +103,6 @@ def analyze(candidates):
         ca_dropped_list = [c for c in ca_candidates if c['status'] == '離脱']
         ca_dropped = len(ca_dropped_list)
         ca_offers  = len([c for c in ca_candidates if c['status'] in ['内定', '入社']])
-        # 離脱ステージ内訳
         ca_drop_detail = {}
         for c in ca_dropped_list:
             ds = c['drop_stage'] or 'その他'
@@ -120,6 +118,57 @@ def analyze(candidates):
             'drop_detail': ca_drop_detail,
         })
 
+    # ===== ② ステージ転換率 =====
+    stage_idx = {s: i for i, s in enumerate(STAGES)}
+    def max_stage_idx(c):
+        s = c.get('stage', '')
+        if s in stage_idx:
+            return stage_idx[s]
+        return -1
+
+    reached = []
+    for i in range(len(STAGES)):
+        count = sum(1 for c in candidates if max_stage_idx(c) >= i)
+        reached.append(count)
+
+    conversion_rates = []
+    for i in range(len(STAGES) - 1):
+        from_count = reached[i]
+        to_count   = reached[i + 1]
+        rate = round(to_count / from_count * 100, 1) if from_count > 0 else 0
+        conversion_rates.append({
+            'from': STAGES[i],
+            'to':   STAGES[i + 1],
+            'from_count': from_count,
+            'to_count':   to_count,
+            'rate': rate,
+        })
+
+    # ===== ⑥ 企業別ビュー =====
+    company_map = {}
+    for c in candidates:
+        company = c['company'] or '（未設定）'
+        if company not in company_map:
+            company_map[company] = []
+        company_map[company].append(c)
+
+    company_stats = []
+    for company, clist in company_map.items():
+        ctotal   = len(clist)
+        cactive  = sum(1 for c in clist if c['status'] == '進行中')
+        cdropped = sum(1 for c in clist if c['status'] == '離脱')
+        coffers  = sum(1 for c in clist if c['status'] in ['内定', '入社'])
+        company_stats.append({
+            'company':    company,
+            'total':      ctotal,
+            'active':     cactive,
+            'dropped':    cdropped,
+            'offers':     coffers,
+            'drop_rate':  round(cdropped / ctotal * 100, 1) if ctotal > 0 else 0,
+            'offer_rate': round(coffers  / ctotal * 100, 1) if ctotal > 0 else 0,
+        })
+    company_stats.sort(key=lambda x: x['total'], reverse=True)
+
     return {
         'total': total,
         'active': len(active),
@@ -134,6 +183,8 @@ def analyze(candidates):
         'funnel': funnel,
         'mendan_drops': mendan_drops,
         'ca_stats': ca_stats,
+        'conversion_rates': conversion_rates,
+        'company_stats': company_stats,
     }
 
 def do_sync():
@@ -332,8 +383,31 @@ tr:hover td { background:#162032; }
 </div>
 
 <div class="card" style="margin-bottom:20px">
+  <div class="card-title">🔀 ステージ転換率</div>
+  <div id="conversion-rates" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+</div>
+
+<div class="card" style="margin-bottom:20px">
   <div class="card-title">👤 CA別 実績</div>
   <div id="ca-stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:4px"></div>
+</div>
+
+<div class="card" style="margin-bottom:20px">
+  <div class="card-title" style="margin-bottom:12px">🏢 企業別 候補者状況</div>
+  <div style="margin-bottom:10px">
+    <input id="company-search" type="text" placeholder="企業名で絞り込み..." oninput="renderCompanyTable()"
+      style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:7px 12px;font-size:13px;width:240px;outline:none">
+  </div>
+  <div style="overflow-x:auto">
+    <table id="company-table">
+      <thead>
+        <tr>
+          <th>企業名</th><th>総数</th><th>進行中</th><th>離脱</th><th>離脱率</th><th>内定・入社</th><th>内定率</th>
+        </tr>
+      </thead>
+      <tbody id="company-table-body"></tbody>
+    </table>
+  </div>
 </div>
 
 <div class="table-wrap">
@@ -358,6 +432,7 @@ tr:hover td { background:#162032; }
 
 <script>
 let allCandidates = [];
+let allCompanyStats = [];
 let currentStatus = 'all';
 let currentCA = 'all';
 
@@ -366,6 +441,7 @@ async function loadData() {
   const data = await res.json();
   const { stats, candidates, last_sync, next_sync, ca_list } = data;
   allCandidates = candidates;
+  allCompanyStats = stats.company_stats || [];
 
   // CA別フィルターボタンを動的生成
   const caFilter = document.getElementById('ca-filter');
@@ -463,7 +539,44 @@ async function loadData() {
     caGrid.innerHTML = '<div style="color:#475569;font-size:13px">CAデータなし</div>';
   }
 
+  // 転換率
+  const cr = stats.conversion_rates || [];
+  document.getElementById('conversion-rates').innerHTML = cr.map((r, i) => {
+    const color = r.rate >= 70 ? '#34d399' : r.rate >= 40 ? '#fbbf24' : '#f87171';
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;background:#0f172a;border-radius:10px;padding:12px 16px;min-width:90px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px">${r.from}</div>
+        <div style="font-size:18px;font-weight:700;color:#f1f5f9">${r.from_count}人</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+        <div style="font-size:13px;font-weight:700;color:${color}">${r.rate}%</div>
+        <div style="font-size:18px;color:#475569">→</div>
+      </div>
+    `;
+  }).join('') + (cr.length > 0 ? `
+    <div style="display:flex;flex-direction:column;align-items:center;background:#0f172a;border-radius:10px;padding:12px 16px;min-width:90px">
+      <div style="font-size:11px;color:#64748b;margin-bottom:4px">${cr[cr.length-1].to}</div>
+      <div style="font-size:18px;font-weight:700;color:#f1f5f9">${cr[cr.length-1].to_count}人</div>
+    </div>` : '<div style="color:#475569;font-size:13px">データなし</div>');
+
+  renderCompanyTable();
   renderTable();
+}
+
+function renderCompanyTable() {
+  const q = (document.getElementById('company-search')?.value || '').trim().toLowerCase();
+  const list = q ? allCompanyStats.filter(c => c.company.toLowerCase().includes(q)) : allCompanyStats;
+  document.getElementById('company-table-body').innerHTML = list.length > 0
+    ? list.map(c => `<tr>
+        <td style="font-weight:600;color:#f1f5f9">${c.company}</td>
+        <td style="text-align:center">${c.total}</td>
+        <td style="text-align:center;color:#34d399">${c.active}</td>
+        <td style="text-align:center;color:#f87171">${c.dropped}</td>
+        <td style="text-align:center;color:${c.drop_rate>=50?'#f87171':c.drop_rate>=30?'#fbbf24':'#94a3b8'}">${c.drop_rate}%</td>
+        <td style="text-align:center;color:#fbbf24">${c.offers}</td>
+        <td style="text-align:center;color:${c.offer_rate>=30?'#34d399':c.offer_rate>=10?'#fbbf24':'#94a3b8'}">${c.offer_rate}%</td>
+      </tr>`).join('')
+    : `<tr><td colspan="7" style="color:#475569;text-align:center;padding:20px">データなし</td></tr>`;
 }
 
 function renderTable() {

@@ -241,9 +241,15 @@ def sync():
         added = updated = 0
 
         for name, info in candidate_map.items():
-            # 手動で離脱済みの候補者は上書きしない
+            # 手動で離脱済みの候補者は上書きしない（ただし録画URLは更新する）
             if name in dropped_names:
-                print(f"   ⏭️  スキップ（離脱済み）: {name}")
+                recording = info.get('recording', '')
+                if recording and name in existing:
+                    row_num = existing[name]
+                    ws.update(f'J{row_num}', [[recording]])
+                    print(f"   🎥 録画URL更新（離脱済み）: {name}")
+                else:
+                    print(f"   ⏭️  スキップ（離脱済み）: {name}")
                 continue
 
             phase        = info['phase']
