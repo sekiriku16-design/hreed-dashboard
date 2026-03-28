@@ -58,6 +58,7 @@ def get_candidates():
                 'drop_stage':  row[6] if len(row) > 6 else '',
                 'drop_reason': row[7] if len(row) > 7 else '',
                 'memo':        row[8] if len(row) > 8 else '',
+                'recording':   row[9] if len(row) > 9 else '',
             })
         return candidates
     except Exception as e:
@@ -95,12 +96,19 @@ def analyze(candidates):
     # CA別集計
     ca_names = sorted(set(c['ca'] for c in candidates if c['ca']))
     ca_stats = []
+    DROP_STAGE_LABELS = ['初回面談後', '2回目面談後', '3回目面談後', '書類選考中', '一次面接', '二次面接', '最終面接']
     for ca in ca_names:
         ca_candidates = [c for c in candidates if c['ca'] == ca]
         ca_total   = len(ca_candidates)
         ca_active  = len([c for c in ca_candidates if c['status'] == '進行中'])
-        ca_dropped = len([c for c in ca_candidates if c['status'] == '離脱'])
+        ca_dropped_list = [c for c in ca_candidates if c['status'] == '離脱']
+        ca_dropped = len(ca_dropped_list)
         ca_offers  = len([c for c in ca_candidates if c['status'] in ['内定', '入社']])
+        # 離脱ステージ内訳
+        ca_drop_detail = {}
+        for c in ca_dropped_list:
+            ds = c['drop_stage'] or 'その他'
+            ca_drop_detail[ds] = ca_drop_detail.get(ds, 0) + 1
         ca_stats.append({
             'ca': ca,
             'total': ca_total,
@@ -109,6 +117,7 @@ def analyze(candidates):
             'offers': ca_offers,
             'drop_rate': round(ca_dropped / ca_total * 100, 1) if ca_total > 0 else 0,
             'offer_rate': round(ca_offers / ca_total * 100, 1) if ca_total > 0 else 0,
+            'drop_detail': ca_drop_detail,
         })
 
     return {
@@ -340,7 +349,7 @@ tr:hover td { background:#162032; }
   <table>
     <thead>
       <tr>
-        <th>候補者名</th><th>担当CA</th><th>求人先</th><th>推薦日</th><th>現ステージ</th><th>ステータス</th><th>離脱理由</th>
+        <th>候補者名</th><th>担当CA</th><th>求人先</th><th>最終更新</th><th>現ステージ</th><th>ステータス</th><th>離脱理由</th><th>録画</th>
       </tr>
     </thead>
     <tbody id="table-body"></tbody>
@@ -421,10 +430,15 @@ async function loadData() {
   // CA別実績
   const caGrid = document.getElementById('ca-stats-grid');
   if (stats.ca_stats && stats.ca_stats.length > 0) {
-    caGrid.innerHTML = stats.ca_stats.map(ca => `
+    caGrid.innerHTML = stats.ca_stats.map(ca => {
+      const dropDetail = Object.entries(ca.drop_detail || {})
+        .sort((a,b) => b[1]-a[1])
+        .map(([s,n]) => `<span style="font-size:10px;color:#94a3b8">${s}: <b style="color:#f87171">${n}</b></span>`)
+        .join('　');
+      return `
       <div style="background:#0f172a;border-radius:10px;padding:16px;border-top:3px solid #38bdf8">
         <div style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:12px">👤 ${ca.ca}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
           <div>
             <div style="font-size:10px;color:#475569;margin-bottom:2px">総候補者</div>
             <div style="font-size:22px;font-weight:700;color:#38bdf8">${ca.total}</div>
@@ -434,16 +448,17 @@ async function loadData() {
             <div style="font-size:22px;font-weight:700;color:#34d399">${ca.active}</div>
           </div>
           <div>
-            <div style="font-size:10px;color:#475569;margin-bottom:2px">離脱</div>
-            <div style="font-size:18px;font-weight:700;color:#f87171">${ca.dropped} <span style="font-size:11px">(${ca.drop_rate}%)</span></div>
+            <div style="font-size:10px;color:#475569;margin-bottom:2px">離脱 (${ca.drop_rate}%)</div>
+            <div style="font-size:22px;font-weight:700;color:#f87171">${ca.dropped}</div>
           </div>
           <div>
-            <div style="font-size:10px;color:#475569;margin-bottom:2px">内定・入社</div>
-            <div style="font-size:18px;font-weight:700;color:#fbbf24">${ca.offers} <span style="font-size:11px">(${ca.offer_rate}%)</span></div>
+            <div style="font-size:10px;color:#475569;margin-bottom:2px">内定・入社 (${ca.offer_rate}%)</div>
+            <div style="font-size:22px;font-weight:700;color:#fbbf24">${ca.offers}</div>
           </div>
         </div>
-      </div>
-    `).join('');
+        ${dropDetail ? `<div style="padding-top:8px;border-top:1px solid #1e293b;display:flex;flex-wrap:wrap;gap:6px">${dropDetail}</div>` : ''}
+      </div>`;
+    }).join('');
   } else {
     caGrid.innerHTML = '<div style="color:#475569;font-size:13px">CAデータなし</div>';
   }
@@ -464,6 +479,7 @@ function renderTable() {
         <td>${c.stage || c.drop_stage || '-'}</td>
         <td><span class="badge ${c.status}">${c.status}</span></td>
         <td>${c.drop_reason || '-'}</td>
+        <td>${c.recording ? `<a href="${c.recording}" target="_blank" style="color:#38bdf8;font-size:12px;text-decoration:none">🎥 見る</a>` : '-'}</td>
       </tr>`).join('')
     : `<tr><td colspan="7" style="color:#475569;text-align:center;padding:24px">データなし</td></tr>`;
 }

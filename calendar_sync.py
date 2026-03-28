@@ -192,7 +192,7 @@ def sync():
             continue
         print(f"   {len(events)}件取得")
 
-        # 候補者ごとに最新フェーズを集約
+        # 候補者ごとに最新フェーズ・録画URLを集約
         candidate_map = {}
         for event in events:
             title = event.get('summary', '')
@@ -201,16 +201,22 @@ def sync():
                 continue
             start      = event.get('start', {})
             event_date = start.get('date') or start.get('dateTime', '')[:10]
+
+            # Google Meet録画URLをイベントの説明欄から抽出
+            description = event.get('description', '') or ''
+            recording_url = ''
+            rec_match = re.search(r'https://drive\.google\.com/\S+', description)
+            if rec_match:
+                recording_url = rec_match.group(0).rstrip('>')
+
             current = candidate_map.get(name)
             new_priority = get_phase_priority(phase)
             if current is None:
-                candidate_map[name] = {'phase': phase, 'company': company, 'date': event_date}
+                candidate_map[name] = {'phase': phase, 'company': company, 'date': event_date, 'recording': recording_url}
             elif new_priority > get_phase_priority(current['phase']):
-                # より進んだステージを優先
-                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date}
+                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date, 'recording': recording_url or current['recording']}
             elif new_priority == get_phase_priority(current['phase']) and event_date >= current['date']:
-                # 同じステージなら日付が新しい方
-                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date}
+                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date, 'recording': recording_url or current['recording']}
 
         print(f"   候補者 {len(candidate_map)}人分を検出")
 
@@ -224,12 +230,13 @@ def sync():
                 print(f"   ⏭️  スキップ（離脱済み）: {name}")
                 continue
 
-            phase       = info['phase']
+            phase        = info['phase']
             stage, status = PHASE_MAP[phase]
-            company     = info['company']
-            date        = info['date']
-            drop_stage  = ''
-            drop_reason = ''
+            company      = info['company']
+            date         = info['date']
+            recording    = info.get('recording', '')
+            drop_stage   = ''
+            drop_reason  = ''
 
             if status == '離脱':
                 drop_stage  = '辞退'
@@ -247,10 +254,12 @@ def sync():
                     batch_updates.append({'range': f'G{row_num}', 'values': [[drop_stage]]})
                 if drop_reason:
                     batch_updates.append({'range': f'H{row_num}', 'values': [[drop_reason]]})
+                if recording:
+                    batch_updates.append({'range': f'J{row_num}', 'values': [[recording]]})
                 updated += 1
-                print(f"   ✏️  更新: {name} → {stage or '離脱'}")
+                print(f"   ✏️  更新: {name} → {stage or '離脱'}{' 🎥' if recording else ''}")
             else:
-                new_rows.append([name, ca_name, company, date, stage, status, drop_stage, drop_reason, ''])
+                new_rows.append([name, ca_name, company, date, stage, status, drop_stage, drop_reason, '', recording])
                 # 既存マップにも追加（同じ名前が他CAにも出た場合の重複防止）
                 existing[name] = len(rows) + len(new_rows)
                 added += 1
