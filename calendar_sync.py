@@ -212,12 +212,18 @@ def sync():
             start      = event.get('start', {})
             event_date = start.get('date') or start.get('dateTime', '')[:10]
 
-            # Google Meet録画URLをイベントの説明欄から抽出
-            description = event.get('description', '') or ''
+            # Google Meet録画URLを添付ファイルから抽出（video/mp4を優先）
             recording_url = ''
-            rec_match = re.search(r'https://drive\.google\.com/\S+', description)
-            if rec_match:
-                recording_url = rec_match.group(0).rstrip('>')
+            for att in event.get('attachments', []):
+                if att.get('mimeType') == 'video/mp4':
+                    recording_url = att.get('fileUrl', '')
+                    break
+            # 添付になければ説明欄のDriveリンクをチェック
+            if not recording_url:
+                description = event.get('description', '') or ''
+                rec_match = re.search(r'https://drive\.google\.com/\S+', description)
+                if rec_match:
+                    recording_url = rec_match.group(0).rstrip('>')
 
             current = candidate_map.get(name)
             new_priority = get_phase_priority(phase)
