@@ -31,31 +31,30 @@ else:
     }
 
 # カレンダータイトル → ステージのマッピング
+# 【フェーズ】名前様 形式（CA面談フェーズ）
+# 企業名（フェーズ）名前様 形式（選考フェーズ）
 PHASE_MAP = {
-    '求人提案':     ('推薦済み',  '進行中'),
-    '初回面談':     ('書類選考中','進行中'),
-    '面談':         ('書類選考中','進行中'),
-    'カジュアル面談':('書類選考中','進行中'),
-    '2回目面談':    ('一次面接',  '進行中'),
-    '二次面談':     ('一次面接',  '進行中'),
-    '3回目面談':    ('二次面接',  '進行中'),
-    '三次面談':     ('二次面接',  '進行中'),
-    '面接対策':     ('最終面接',  '進行中'),
-    '一次面接':     ('一次面接',  '進行中'),
-    '二次面接':     ('二次面接',  '進行中'),
-    '最終面接':     ('最終面接',  '進行中'),
-    '内定':         ('内定',      '内定'),
-    '入社':         ('入社',      '入社'),
-    '辞退':         ('',          '離脱'),
+    # ── 【フェーズ】名前様 形式 ──
+    '初回面談':  ('初回面談', '進行中'),
+    '求人提案':  ('求人提案', '進行中'),
+    '面接対策':  ('面接対策', '進行中'),
+    # ── 企業名（フェーズ）名前様 形式 ──
+    '書類選考':  ('書類選考', '進行中'),
+    '一次面接':  ('一次面接', '進行中'),
+    '二次面接':  ('二次面接', '進行中'),
+    '最終面接':  ('最終面接', '進行中'),
+    '内定':      ('内定',     '内定'),
+    '入社':      ('入社',     '入社'),
+    '辞退':      ('',         '離脱'),
 }
 
 # ステージの優先順位（高いほど進んでいる）
-STAGE_PRIORITY = ['推薦済み', '書類選考中', '一次面接', '二次面接', '最終面接', '内定', '入社', '離脱']
+STAGE_PRIORITY = ['初回面談', '求人提案', '面接対策', '書類選考', '一次面接', '二次面接', '最終面接', '内定', '入社']
 
 def get_phase_priority(phase):
     stage, status = PHASE_MAP.get(phase, ('', ''))
     if status == '離脱':
-        return len(STAGE_PRIORITY) - 1  # 辞退は最終状態として最優先
+        return len(STAGE_PRIORITY)  # 辞退は最終状態として最優先
     if stage in STAGE_PRIORITY:
         return STAGE_PRIORITY.index(stage)
     return -1
@@ -110,41 +109,30 @@ calendar_service = _build_calendar_service()
 def parse_event_title(title):
     """
     以下のフォーマットに対応:
-    1. 【初回面談】田中様 / 企業名
-    2. 【初回面談/WEB】田中様  → /以前がフェーズ
-    3. 【BIZ/市川】田中様_カジュアル面談  → _以降がフェーズ
-    4. 【面談】田中さん  → さん も可
+    フォーマット1（CA面談）: 【初回面談】田中太郎様 / 【求人提案】田中太郎様 / 【面接対策】田中太郎様
+    フォーマット2（選考）  : ABC株式会社（一次面接）田中太郎様
     """
     t = title.strip()
 
-    # 【】の中身を取得
+    # フォーマット1: 【フェーズ】名前様
     bracket = re.search(r'【(.+?)】', t)
-    if not bracket:
+    if bracket:
+        inner = bracket.group(1).strip()
+        phase = inner.split('/')[0].split('／')[0].strip()
+        name_match = re.search(r'】(.+?)(?:様|さま|さん)', t)
+        if name_match and phase in PHASE_MAP:
+            name = name_match.group(1).strip() + '様'
+            return phase, name, ''
         return None, None, None
-    inner = bracket.group(1).strip()
 
-    # 名前部分（様・さま・さん）を取得
-    name_match = re.search(r'】(.+?)(?:様|さま|さん)', t)
-    if not name_match:
-        return None, None, None
-    name = name_match.group(1).strip() + '様'
-
-    # フェーズ判定: 【フェーズ/xxx】 or 【フェーズ】
-    # /で分割して先頭部分がPHASE_MAPにあればそれがフェーズ
-    phase_candidate = inner.split('/')[0].split('／')[0].strip()
-    if phase_candidate in PHASE_MAP:
-        # 企業名は名前の後ろの / 以降
-        company_match = re.search(r'(?:様|さま|さん)\s*[/／]\s*(.+)$', t)
-        company = company_match.group(1).strip() if company_match else ''
-        return phase_candidate, name, company
-
-    # フェーズ判定: 【部署/CA】名前様_フェーズ
-    phase_suffix = re.search(r'(?:様|さま)\s*[_＿]\s*(.+)$', t)
-    if phase_suffix:
-        phase_part = phase_suffix.group(1).strip()
-        for key in PHASE_MAP:
-            if key in phase_part:
-                return key, name, ''
+    # フォーマット2: 企業名（フェーズ）名前様
+    paren_match = re.match(r'^(.+?)[（(](.+?)[）)](.+?)(?:様|さま|さん)', t)
+    if paren_match:
+        company = paren_match.group(1).strip()
+        phase   = paren_match.group(2).strip()
+        name    = paren_match.group(3).strip() + '様'
+        if phase in PHASE_MAP:
+            return phase, name, company
 
     return None, None, None
 

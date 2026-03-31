@@ -15,8 +15,7 @@ import base64 as _base64
 # ===== 設定 =====
 SPREADSHEET_KEY = '1GPNWEtNnZemkrWm0Y4WhJODcBMTTKJbTJsK9Krj64os'
 SHEET_NAME = '候補者管理'
-STAGES = ['推薦済み', '書類選考中', '一次面接', '二次面接', '最終面接', '内定', '入社']
-DROP_STAGES = ['推薦済み', '書類選考中', '初回面談後', '2回目面談後', '3回目面談後', '一次面接', '二次面接', '最終面接', '内定後']
+STAGES = ['初回面談', '求人提案', '面接対策', '書類選考', '一次面接', '二次面接', '最終面接', '内定', '入社']
 AUTO_SYNC_INTERVAL_HOURS = 2  # 2時間おきに自動同期
 
 # ===== 認証 =====
@@ -77,10 +76,12 @@ def analyze(candidates):
         if c['stage'] in stage_counts:
             stage_counts[c['stage']] += 1
 
-    drop_by_stage = {s: 0 for s in DROP_STAGES}
+    # 離脱者の最終ステージで集計（stageカラムが空なら drop_stage を使う）
+    drop_by_stage = {s: 0 for s in STAGES}
+    drop_by_stage['その他'] = 0
     for c in dropped:
-        if c['drop_stage'] in drop_by_stage:
-            drop_by_stage[c['drop_stage']] += 1
+        s = c['stage'] if c['stage'] in drop_by_stage else 'その他'
+        drop_by_stage[s] += 1
 
     drop_reasons = {}
     for c in dropped:
@@ -91,7 +92,8 @@ def analyze(candidates):
     for s in STAGES:
         funnel.append({'stage': s, 'active': stage_counts.get(s, 0), 'dropped': drop_by_stage.get(s, 0)})
 
-    mendan_drops = {s: drop_by_stage.get(s, 0) for s in ['初回面談後', '2回目面談後', '3回目面談後']}
+    # CA面談フェーズ別の離脱内訳
+    mendan_drops = {s: drop_by_stage.get(s, 0) for s in ['初回面談', '求人提案', '面接対策']}
 
     # CA別集計
     ca_names = sorted(set(c['ca'] for c in candidates if c['ca']))
