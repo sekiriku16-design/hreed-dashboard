@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 # ===== 設定 =====
 SPREADSHEET_KEY = '1GPNWEtNnZemkrWm0Y4WhJODcBMTTKJbTJsK9Krj64os'
 SHEET_NAME = '候補者管理'
-SYNC_DAYS_PAST = 90
+SYNC_DAYS_PAST = 31  # 3月1日以降を対象（31日前〜）
 SYNC_DAYS_FUTURE = 30
 
 # CA名 → カレンダーID のマッピング
