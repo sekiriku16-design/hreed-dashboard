@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 SPREADSHEET_KEY = '1GPNWEtNnZemkrWm0Y4WhJODcBMTTKJbTJsK9Krj64os'
 SHEET_NAME = '候補者管理'
 SYNC_DAYS_PAST = 31  # 3月1日以降を対象（31日前〜）
-SYNC_DAYS_FUTURE = 30
+SYNC_DAYS_FUTURE = 60
 
 # CA名 → カレンダーID のマッピング
 _cal_env = os.environ.get('CALENDAR_IDS_JSON')
