@@ -371,6 +371,13 @@ tr:hover td { background:#162032; }
   <div class="kpi purple"><div class="kpi-label">入社確定</div>  <div class="kpi-value" id="kpi-joined">-</div></div>
 </div>
 
+<div class="card" style="margin-bottom:18px;padding:16px 22px">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em">絞り込み:</span>
+    <div id="stats-ca-filter" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  </div>
+</div>
+
 <div class="section-grid">
   <div class="card">
     <div class="card-title">📊 ステージ別 進行状況</div>
@@ -433,10 +440,12 @@ tr:hover td { background:#162032; }
 </div>
 
 <script>
+const STAGES = ['初回面談','求人提案','面接対策','書類選考','一次面接','二次面接','最終面接','内定','入社'];
 let allCandidates = [];
 let allCompanyStats = [];
 let currentStatus = 'all';
 let currentCA = 'all';
+let currentStatsCA = 'all';
 
 async function loadData() {
   const res = await fetch('/api/data');
@@ -445,7 +454,14 @@ async function loadData() {
   allCandidates = candidates;
   allCompanyStats = stats.company_stats || [];
 
-  // CA別フィルターボタンを動的生成
+  // 統計CAフィルターボタンを動的生成
+  const statsCaFilter = document.getElementById('stats-ca-filter');
+  statsCaFilter.innerHTML = `
+    <button class="filter-btn active" onclick="filterStatsBy('all',this)">全員</button>
+    ${ca_list.map(ca => `<button class="filter-btn" onclick="filterStatsBy('${ca}',this)">${ca}</button>`).join('')}
+  `;
+
+  // 候補者テーブルCAフィルターボタンを動的生成
   const caFilter = document.getElementById('ca-filter');
   if (ca_list && ca_list.length > 1) {
     caFilter.innerHTML = `
@@ -461,7 +477,7 @@ async function loadData() {
   document.getElementById('last-sync').textContent = last_sync || '未同期';
   document.getElementById('next-sync').textContent = next_sync || '-';
 
-  // KPI
+  // KPI（全体）
   document.getElementById('kpi-total').textContent   = stats.total;
   document.getElementById('kpi-active').textContent  = stats.active;
   document.getElementById('kpi-dropped').textContent = stats.dropped;
@@ -469,41 +485,6 @@ async function loadData() {
   document.getElementById('kpi-offers').textContent  = stats.offers;
   document.getElementById('kpi-offer-rate').textContent = `内定率 ${stats.offer_rate}%`;
   document.getElementById('kpi-joined').textContent  = stats.joined;
-
-  // ファネル
-  const maxActive = Math.max(...stats.funnel.map(f => f.active), 1);
-  document.getElementById('funnel-rows').innerHTML = stats.funnel.map(f => `
-    <div class="funnel-row">
-      <div class="funnel-label">${f.stage}</div>
-      <div class="funnel-bar-wrap">
-        <div class="funnel-bar bar-blue" style="width:${Math.round(f.active/maxActive*100)}%">
-          ${f.active > 0 ? f.active+'人' : ''}
-        </div>
-      </div>
-      <div class="funnel-drop">${f.dropped > 0 ? '−'+f.dropped : ''}</div>
-    </div>`).join('');
-
-  // 面談後離脱
-  const mendan = stats.mendan_drops;
-  const mendanTotal = Object.values(mendan).reduce((a,b)=>a+b,0);
-  document.getElementById('mendan-drops').innerHTML = mendanTotal > 0
-    ? Object.entries(mendan).map(([label,cnt]) => `
-        <div class="funnel-row">
-          <div class="funnel-label">${label}</div>
-          <div class="funnel-bar-wrap">
-            <div class="funnel-bar bar-red" style="width:${cnt>0?Math.max(Math.round(cnt/mendanTotal*100),8):0}%">
-              ${cnt > 0 ? cnt+'人' : ''}
-            </div>
-          </div>
-          <div class="funnel-drop" style="color:#94a3b8">${cnt>0?Math.round(cnt/mendanTotal*100)+'%':''}</div>
-        </div>`).join('')
-    : '<div class="empty">面談後離脱データなし</div>';
-
-  // 離脱理由
-  const sorted = Object.entries(stats.drop_reasons).sort((a,b)=>b[1]-a[1]);
-  document.getElementById('drop-reasons').innerHTML = sorted.length > 0
-    ? sorted.map(([r,cnt]) => `<div class="reason-row"><span class="reason-name">${r}</span><span class="reason-count">${cnt}件</span></div>`).join('')
-    : '<div class="empty">離脱データなし</div>';
 
   // CA別実績
   const caGrid = document.getElementById('ca-stats-grid');
@@ -517,22 +498,10 @@ async function loadData() {
       <div style="background:#0f172a;border-radius:10px;padding:16px;border-top:3px solid #38bdf8">
         <div style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:12px">👤 ${ca.ca}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-          <div>
-            <div style="font-size:10px;color:#475569;margin-bottom:2px">総候補者</div>
-            <div style="font-size:22px;font-weight:700;color:#38bdf8">${ca.total}</div>
-          </div>
-          <div>
-            <div style="font-size:10px;color:#475569;margin-bottom:2px">進行中</div>
-            <div style="font-size:22px;font-weight:700;color:#34d399">${ca.active}</div>
-          </div>
-          <div>
-            <div style="font-size:10px;color:#475569;margin-bottom:2px">離脱 (${ca.drop_rate}%)</div>
-            <div style="font-size:22px;font-weight:700;color:#f87171">${ca.dropped}</div>
-          </div>
-          <div>
-            <div style="font-size:10px;color:#475569;margin-bottom:2px">内定・入社 (${ca.offer_rate}%)</div>
-            <div style="font-size:22px;font-weight:700;color:#fbbf24">${ca.offers}</div>
-          </div>
+          <div><div style="font-size:10px;color:#475569;margin-bottom:2px">総候補者</div><div style="font-size:22px;font-weight:700;color:#38bdf8">${ca.total}</div></div>
+          <div><div style="font-size:10px;color:#475569;margin-bottom:2px">進行中</div><div style="font-size:22px;font-weight:700;color:#34d399">${ca.active}</div></div>
+          <div><div style="font-size:10px;color:#475569;margin-bottom:2px">離脱 (${ca.drop_rate}%)</div><div style="font-size:22px;font-weight:700;color:#f87171">${ca.dropped}</div></div>
+          <div><div style="font-size:10px;color:#475569;margin-bottom:2px">内定・入社 (${ca.offer_rate}%)</div><div style="font-size:22px;font-weight:700;color:#fbbf24">${ca.offers}</div></div>
         </div>
         ${dropDetail ? `<div style="padding-top:8px;border-top:1px solid #1e293b;display:flex;flex-wrap:wrap;gap:6px">${dropDetail}</div>` : ''}
       </div>`;
@@ -541,9 +510,86 @@ async function loadData() {
     caGrid.innerHTML = '<div style="color:#475569;font-size:13px">CAデータなし</div>';
   }
 
+  renderStatsSection();
+  renderCompanyTable();
+  renderTable();
+}
+
+// ===== ステージ統計をCA別に切り替え =====
+function calcStatsFromCandidates(candidates) {
+  const stageIdx = Object.fromEntries(STAGES.map((s,i) => [s,i]));
+  const active  = candidates.filter(c => c.status === '進行中');
+  const dropped = candidates.filter(c => c.status === '離脱');
+  const offers  = candidates.filter(c => ['内定','入社'].includes(c.status));
+
+  const stageCounts = Object.fromEntries(STAGES.map(s => [s, 0]));
+  [...active, ...offers].forEach(c => { if (c.stage in stageCounts) stageCounts[c.stage]++; });
+
+  const dropByStage = Object.fromEntries(STAGES.map(s => [s, 0]));
+  dropByStage['その他'] = 0;
+  dropped.forEach(c => {
+    const s = STAGES.includes(c.stage) ? c.stage : 'その他';
+    dropByStage[s]++;
+  });
+
+  const funnel = STAGES.map(s => ({ stage: s, active: stageCounts[s]||0, dropped: dropByStage[s]||0 }));
+
+  const reached = STAGES.map((s,i) => candidates.filter(c => (stageIdx[c.stage] ?? -1) >= i).length);
+  const conversionRates = STAGES.slice(0,-1).map((s,i) => ({
+    from: STAGES[i], to: STAGES[i+1],
+    from_count: reached[i], to_count: reached[i+1],
+    rate: reached[i] > 0 ? Math.round(reached[i+1]/reached[i]*1000)/10 : 0
+  }));
+
+  const mendanDrops = { '初回面談': dropByStage['初回面談']||0, '求人提案': dropByStage['求人提案']||0, '面接対策': dropByStage['面接対策']||0 };
+
+  const dropReasons = {};
+  dropped.forEach(c => { const r = c.drop_reason||'その他'; dropReasons[r]=(dropReasons[r]||0)+1; });
+
+  return { funnel, conversionRates, mendanDrops, dropReasons };
+}
+
+function renderStatsSection() {
+  const targets = currentStatsCA === 'all' ? allCandidates : allCandidates.filter(c => c.ca === currentStatsCA);
+  const s = calcStatsFromCandidates(targets);
+
+  // ファネル
+  const maxActive = Math.max(...s.funnel.map(f => f.active), 1);
+  document.getElementById('funnel-rows').innerHTML = s.funnel.map(f => `
+    <div class="funnel-row">
+      <div class="funnel-label">${f.stage}</div>
+      <div class="funnel-bar-wrap">
+        <div class="funnel-bar bar-blue" style="width:${Math.round(f.active/maxActive*100)}%">
+          ${f.active > 0 ? f.active+'人' : ''}
+        </div>
+      </div>
+      <div class="funnel-drop">${f.dropped > 0 ? '−'+f.dropped : ''}</div>
+    </div>`).join('');
+
+  // 面談後離脱
+  const mendanTotal = Object.values(s.mendanDrops).reduce((a,b)=>a+b,0);
+  document.getElementById('mendan-drops').innerHTML = mendanTotal > 0
+    ? Object.entries(s.mendanDrops).map(([label,cnt]) => `
+        <div class="funnel-row">
+          <div class="funnel-label">${label}</div>
+          <div class="funnel-bar-wrap">
+            <div class="funnel-bar bar-red" style="width:${cnt>0?Math.max(Math.round(cnt/mendanTotal*100),8):0}%">
+              ${cnt > 0 ? cnt+'人' : ''}
+            </div>
+          </div>
+          <div class="funnel-drop" style="color:#94a3b8">${cnt>0?Math.round(cnt/mendanTotal*100)+'%':''}</div>
+        </div>`).join('')
+    : '<div class="empty">面談後離脱データなし</div>';
+
+  // 離脱理由
+  const sorted = Object.entries(s.dropReasons).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('drop-reasons').innerHTML = sorted.length > 0
+    ? sorted.map(([r,cnt]) => `<div class="reason-row"><span class="reason-name">${r}</span><span class="reason-count">${cnt}件</span></div>`).join('')
+    : '<div class="empty">離脱データなし</div>';
+
   // 転換率
-  const cr = stats.conversion_rates || [];
-  document.getElementById('conversion-rates').innerHTML = cr.map((r, i) => {
+  const cr = s.conversionRates;
+  document.getElementById('conversion-rates').innerHTML = cr.map(r => {
     const color = r.rate >= 70 ? '#34d399' : r.rate >= 40 ? '#fbbf24' : '#f87171';
     return `
       <div style="display:flex;flex-direction:column;align-items:center;background:#0f172a;border-radius:10px;padding:12px 16px;min-width:90px">
@@ -553,16 +599,19 @@ async function loadData() {
       <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
         <div style="font-size:13px;font-weight:700;color:${color}">${r.rate}%</div>
         <div style="font-size:18px;color:#475569">→</div>
-      </div>
-    `;
+      </div>`;
   }).join('') + (cr.length > 0 ? `
     <div style="display:flex;flex-direction:column;align-items:center;background:#0f172a;border-radius:10px;padding:12px 16px;min-width:90px">
       <div style="font-size:11px;color:#64748b;margin-bottom:4px">${cr[cr.length-1].to}</div>
       <div style="font-size:18px;font-weight:700;color:#f1f5f9">${cr[cr.length-1].to_count}人</div>
     </div>` : '<div style="color:#475569;font-size:13px">データなし</div>');
+}
 
-  renderCompanyTable();
-  renderTable();
+function filterStatsBy(ca, btn) {
+  document.querySelectorAll('#stats-ca-filter .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentStatsCA = ca;
+  renderStatsSection();
 }
 
 function renderCompanyTable() {
