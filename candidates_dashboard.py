@@ -534,7 +534,9 @@ function calcStatsFromCandidates(candidates) {
 
   const funnel = STAGES.map(s => ({ stage: s, active: stageCounts[s]||0, dropped: dropByStage[s]||0 }));
 
-  const reached = STAGES.map((s,i) => candidates.filter(c => (stageIdx[c.stage] ?? -1) >= i).length);
+  // 転換率は離脱者を除外（進行中・内定・入社のみ）
+  const nonDropped = candidates.filter(c => c.status !== '離脱');
+  const reached = STAGES.map((s,i) => nonDropped.filter(c => (stageIdx[c.stage] ?? -1) >= i).length);
   const conversionRates = STAGES.slice(0,-1).map((s,i) => ({
     from: STAGES[i], to: STAGES[i+1],
     from_count: reached[i], to_count: reached[i+1],
