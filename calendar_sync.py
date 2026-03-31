@@ -195,6 +195,7 @@ def sync():
 
     total_added   = 0
     total_updated = 0
+    _all_candidate_maps = []
 
     for ca_name, calendar_id in CALENDAR_MAP.items():
         print(f"\n📅 [{ca_name}] カレンダー取得中... ({calendar_id})")
@@ -238,6 +239,7 @@ def sync():
                 candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date, 'recording': recording_url or current['recording']}
 
         print(f"   候補者 {len(candidate_map)}人分を検出")
+        _all_candidate_maps.append(candidate_map)
 
         batch_updates = []
         new_rows      = []
@@ -299,11 +301,22 @@ def sync():
         total_updated += updated
 
     # ===== 2週間以上動きがない進行中候補者を自動離脱に =====
-    auto_dropped = _auto_drop_inactive(ws, rows)
+    # ※未来の予定がある候補者は除外
+    all_future_names = set()
+    jst_now = datetime.now(timezone(timedelta(hours=9)))
+    today_str = jst_now.strftime('%Y-%m-%d')
+    for ca_candidate_map in _all_candidate_maps:
+        for name, info in ca_candidate_map.items():
+            if info.get('date', '') > today_str:
+                all_future_names.add(name)
+
+    auto_dropped = _auto_drop_inactive(ws, rows, exclude_names=all_future_names)
     print(f"\n✅ 同期完了！ 追加: {total_added}人 / 更新: {total_updated}人 / 自動離脱: {auto_dropped}人")
 
-def _auto_drop_inactive(ws, rows, days=14):
-    """最終イベントから指定日数以上経過した進行中候補者を自動離脱にする"""
+def _auto_drop_inactive(ws, rows, days=14, exclude_names=None):
+    """最終イベントから指定日数以上経過した進行中候補者を自動離脱にする（未来の予定がある人は除外）"""
+    if exclude_names is None:
+        exclude_names = set()
     jst = timezone(timedelta(hours=9))
     today = datetime.now(jst).date()
     threshold = today - timedelta(days=days)
@@ -320,6 +333,10 @@ def _auto_drop_inactive(ws, rows, days=14):
 
         # 進行中以外はスキップ
         if status != '進行中':
+            continue
+
+        # 未来の予定がある候補者はスキップ
+        if name in exclude_names:
             continue
 
         # 日付をパース
