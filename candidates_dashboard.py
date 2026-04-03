@@ -614,11 +614,33 @@ function filterStatsBy(ca, btn) {
   btn.classList.add('active');
   currentStatsCA = ca;
   renderStatsSection();
+  renderCompanyTable();
 }
 
 function renderCompanyTable() {
   const q = (document.getElementById('company-search')?.value || '').trim().toLowerCase();
-  const list = q ? allCompanyStats.filter(c => c.company.toLowerCase().includes(q)) : allCompanyStats;
+  const targets = currentStatsCA === 'all' ? allCandidates : allCandidates.filter(c => c.ca === currentStatsCA);
+
+  // 企業別に集計（クライアント側でリアルタイム計算）
+  const companyMap = {};
+  targets.forEach(c => {
+    const company = c.company || '（未設定）';
+    if (!companyMap[company]) companyMap[company] = { total:0, active:0, dropped:0, offers:0 };
+    companyMap[company].total++;
+    if (c.status === '進行中') companyMap[company].active++;
+    else if (c.status === '離脱') companyMap[company].dropped++;
+    else if (['内定','入社'].includes(c.status)) companyMap[company].offers++;
+  });
+
+  let list = Object.entries(companyMap).map(([company, d]) => ({
+    company,
+    ...d,
+    drop_rate:  d.total > 0 ? Math.round(d.dropped/d.total*1000)/10 : 0,
+    offer_rate: d.total > 0 ? Math.round(d.offers/d.total*1000)/10  : 0,
+  })).sort((a,b) => b.total - a.total);
+
+  if (q) list = list.filter(c => c.company.toLowerCase().includes(q));
+
   document.getElementById('company-table-body').innerHTML = list.length > 0
     ? list.map(c => `<tr>
         <td style="font-weight:600;color:#f1f5f9">${c.company}</td>
