@@ -183,15 +183,18 @@ def sync():
     ws    = sheet.worksheet(SHEET_NAME)
     rows  = ws.get_all_values()
 
-    # 既存候補者: 名前 → 行番号
+    # 既存候補者: キー(名前 or 名前|企業) → 行番号
+    # 企業が入っている行は「名前|企業名」をキーにして複数社対応
     existing = {}
-    # 離脱済み候補者: 同期で上書きしない
     dropped_names = set()
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0]:
-            existing[row[0]] = i
+            name    = row[0]
+            company = row[2] if len(row) > 2 else ''
+            key = f"{name}|{company}" if company else name
+            existing[key] = i
             if len(row) > 5 and row[5] == '離脱':
-                dropped_names.add(row[0])
+                dropped_names.add(key)
 
     total_added   = 0
     total_updated = 0
@@ -207,6 +210,7 @@ def sync():
         print(f"   {len(events)}件取得")
 
         # 候補者ごとに最新フェーズ・録画URLを集約
+        # キー: 企業あり→「名前|企業名」、CA面談(企業なし)→「名前」
         candidate_map = {}
         for event in events:
             title = event.get('summary', '')
@@ -222,21 +226,21 @@ def sync():
                 if att.get('mimeType') == 'video/mp4':
                     recording_url = att.get('fileUrl', '')
                     break
-            # 添付になければ説明欄のDriveリンクをチェック
             if not recording_url:
                 description = event.get('description', '') or ''
                 rec_match = re.search(r'https://drive\.google\.com/\S+', description)
                 if rec_match:
                     recording_url = rec_match.group(0).rstrip('>')
 
-            current = candidate_map.get(name)
+            key = f"{name}|{company}" if company else name
+            current = candidate_map.get(key)
             new_priority = get_phase_priority(phase)
             if current is None:
-                candidate_map[name] = {'phase': phase, 'company': company, 'date': event_date, 'recording': recording_url}
+                candidate_map[key] = {'name': name, 'phase': phase, 'company': company, 'date': event_date, 'recording': recording_url}
             elif new_priority > get_phase_priority(current['phase']):
-                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date, 'recording': recording_url or current['recording']}
+                candidate_map[key] = {'name': name, 'phase': phase, 'company': company or current['company'], 'date': event_date, 'recording': recording_url or current['recording']}
             elif new_priority == get_phase_priority(current['phase']) and event_date >= current['date']:
-                candidate_map[name] = {'phase': phase, 'company': company or current['company'], 'date': event_date, 'recording': recording_url or current['recording']}
+                candidate_map[key] = {'name': name, 'phase': phase, 'company': company or current['company'], 'date': event_date, 'recording': recording_url or current['recording']}
 
         print(f"   候補者 {len(candidate_map)}人分を検出")
         _all_candidate_maps.append(candidate_map)
@@ -245,36 +249,37 @@ def sync():
         new_rows      = []
         added = updated = 0
 
-        for name, info in candidate_map.items():
-            # 手動で離脱済みの候補者は上書きしない（ただし録画URLは更新する）
-            if name in dropped_names:
+        for key, info in candidate_map.items():
+            name      = info['name']
+            # 離脱済みはスキップ（録画URLのみ更新）
+            if key in dropped_names:
                 recording = info.get('recording', '')
-                if recording and name in existing:
-                    row_num = existing[name]
+                if recording and key in existing:
+                    row_num = existing[key]
                     ws.update(f'J{row_num}', [[recording]])
                     print(f"   🎥 録画URL更新（離脱済み）: {name}")
                 else:
                     print(f"   ⏭️  スキップ（離脱済み）: {name}")
                 continue
 
-            phase        = info['phase']
+            phase         = info['phase']
             stage, status = PHASE_MAP[phase]
-            company      = info['company']
-            date         = info['date']
-            recording    = info.get('recording', '')
-            drop_stage   = ''
-            drop_reason  = ''
+            company       = info['company']
+            date          = info['date']
+            recording     = info.get('recording', '')
+            drop_stage    = ''
+            drop_reason   = ''
 
             if status == '離脱':
                 drop_stage  = '辞退'
                 drop_reason = '辞退'
                 stage       = ''
 
-            if name in existing:
-                row_num = existing[name]
+            if key in existing:
+                row_num = existing[key]
                 if company:
                     batch_updates.append({'range': f'C{row_num}', 'values': [[company]]})
-                batch_updates.append({'range': f'D{row_num}', 'values': [[date]]})  # 最終イベント日を更新
+                batch_updates.append({'range': f'D{row_num}', 'values': [[date]]})
                 batch_updates.append({'range': f'E{row_num}', 'values': [[stage]]})
                 batch_updates.append({'range': f'F{row_num}', 'values': [[status]]})
                 if drop_stage:
@@ -284,13 +289,12 @@ def sync():
                 if recording:
                     batch_updates.append({'range': f'J{row_num}', 'values': [[recording]]})
                 updated += 1
-                print(f"   ✏️  更新: {name} → {stage or '離脱'}{' 🎥' if recording else ''}")
+                print(f"   ✏️  更新: {name}{'@'+company if company else ''} → {stage or '離脱'}{' 🎥' if recording else ''}")
             else:
                 new_rows.append([name, ca_name, company, date, stage, status, drop_stage, drop_reason, '', recording])
-                # 既存マップにも追加（同じ名前が他CAにも出た場合の重複防止）
-                existing[name] = len(rows) + len(new_rows)
+                existing[key] = len(rows) + len(new_rows)
                 added += 1
-                print(f"   ➕ 追加: {name} → {stage or '離脱'}")
+                print(f"   ➕ 追加: {name}{'@'+company if company else ''} → {stage or '離脱'}")
 
         if batch_updates:
             ws.batch_update(batch_updates)
@@ -306,9 +310,9 @@ def sync():
     jst_now = datetime.now(timezone(timedelta(hours=9)))
     today_str = jst_now.strftime('%Y-%m-%d')
     for ca_candidate_map in _all_candidate_maps:
-        for name, info in ca_candidate_map.items():
+        for key, info in ca_candidate_map.items():
             if info.get('date', '') > today_str:
-                all_future_names.add(name)
+                all_future_names.add(info['name'])  # 実際の候補者名で管理
 
     auto_dropped = _auto_drop_inactive(ws, rows, exclude_names=all_future_names)
     print(f"\n✅ 同期完了！ 追加: {total_added}人 / 更新: {total_updated}人 / 自動離脱: {auto_dropped}人")
